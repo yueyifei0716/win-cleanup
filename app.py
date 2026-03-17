@@ -212,6 +212,10 @@ def _build_env():
     if extra_paths:
         env["PATH"] = ";".join(extra_paths) + ";" + env.get("PATH", "")
 
+    # Force unbuffered output for Python-based tools (conda, pip, etc.)
+    env["PYTHONUNBUFFERED"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
+
     return env
 
 SUBPROCESS_ENV = _build_env()
@@ -466,29 +470,87 @@ class Api:
         return result
 
     def _run_with_log(self, cmd, mgr_name, timeout=300):
-        """Run a command and stream stdout/stderr lines to the frontend in real-time."""
+        """Run a command and stream output to frontend via a reader thread.
+
+        Windows pipes don't support non-blocking reads, so we use a
+        background thread to read lines and push them to a queue.
+        The main thread polls the queue and emits events to the UI.
+        """
+        import queue
+
         flags = subprocess.CREATE_NO_WINDOW
         try:
             proc = subprocess.Popen(
                 cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                text=True, bufsize=1, creationflags=flags, env=SUBPROCESS_ENV
+                creationflags=flags, env=SUBPROCESS_ENV
             )
             output_lines = []
-            for line in iter(proc.stdout.readline, ''):
-                line = line.rstrip()
-                if line:
-                    output_lines.append(line)
+            line_queue = queue.Queue()
+
+            def _reader():
+                """Read stdout line by line in a dedicated thread."""
+                try:
+                    for raw_line in proc.stdout:
+                        line = raw_line.decode("utf-8", errors="replace").rstrip("\r\n")
+                        line_queue.put(line)
+                except Exception:
+                    pass
+                finally:
+                    line_queue.put(None)  # Sentinel: reader done
+
+            reader_thread = threading.Thread(target=_reader, daemon=True)
+            reader_thread.start()
+
+            start = time.time()
+            heartbeat = time.time()
+            reader_done = False
+
+            while True:
+                # Drain all available lines from queue
+                while True:
+                    try:
+                        line = line_queue.get_nowait()
+                        if line is None:
+                            reader_done = True
+                            break
+                        if line:
+                            output_lines.append(line)
+                            self._emit("update_log", {
+                                "manager": mgr_name,
+                                "line": line,
+                            })
+                            heartbeat = time.time()
+                    except queue.Empty:
+                        break
+
+                # Check if process finished
+                if reader_done:
+                    proc.stdout.close()
+                    proc.wait(timeout=10)
+                    break
+
+                # Timeout check
+                elapsed = time.time() - start
+                if elapsed > timeout:
+                    proc.kill()
                     self._emit("update_log", {
                         "manager": mgr_name,
-                        "line": line,
+                        "line": f"[TIMEOUT] Command exceeded {timeout}s"
                     })
-            proc.stdout.close()
-            proc.wait(timeout=timeout)
+                    return False, ["[TIMEOUT]"]
+
+                # Heartbeat: show user it's still running (every 10s without output)
+                if time.time() - heartbeat > 10:
+                    self._emit("update_log", {
+                        "manager": mgr_name,
+                        "line": f"  ... still running ({int(elapsed)}s elapsed)",
+                    })
+                    heartbeat = time.time()
+
+                time.sleep(0.15)
+
             return proc.returncode == 0, output_lines
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            self._emit("update_log", {"manager": mgr_name, "line": "[TIMEOUT] Command timed out"})
-            return False, ["[TIMEOUT]"]
+
         except Exception as e:
             self._emit("update_log", {"manager": mgr_name, "line": f"[ERROR] {e}"})
             return False, [str(e)]
