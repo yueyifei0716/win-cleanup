@@ -525,17 +525,23 @@ window.addEventListener('clean_complete', async (e) => {
 });
 
 // ── Updates ──
-const availableUpdaters = ['conda', 'pip', 'npm', 'scoop', 'winget'];
+let updaterInfo = [];
 
-function renderUpdateList() {
+async function renderUpdateList() {
   const list = document.getElementById('update-list');
-  list.innerHTML = availableUpdaters.map(m => `
-    <div class="scan-item selected" onclick="this.querySelector('input').click()">
-      <input type="checkbox" checked data-mgr="${m}" onclick="event.stopPropagation()">
-      <span class="name">${m}</span>
-      <span class="tag" id="update-status-${m}">ready</span>
-    </div>
-  `).join('');
+  updaterInfo = await pywebview.api.get_available_updaters();
+  list.innerHTML = updaterInfo.map(m => {
+    const available = m.available;
+    const statusText = available ? 'ready' : 'not found';
+    const statusColor = available ? '' : 'color:var(--red)';
+    return `
+      <div class="scan-item ${available ? 'selected' : ''}" onclick="${available ? "this.querySelector('input').click()" : ''}">
+        <input type="checkbox" ${available ? 'checked' : 'disabled'} data-mgr="${m.name}" onclick="event.stopPropagation()">
+        <span class="name">${m.name}</span>
+        <span class="tag" id="update-status-${m.name}" style="${statusColor}">${statusText}</span>
+      </div>
+    `;
+  }).join('');
 }
 
 async function startUpdate() {

@@ -145,6 +145,64 @@ WINGET_DEV_PACKAGES = [
 ]
 
 
+# ─── Environment Setup ────────────────────────────────────────────────────
+
+def _build_env():
+    """Build a subprocess environment with conda, node, npm etc. on PATH."""
+    env = os.environ.copy()
+    extra_paths = []
+
+    # Find conda installation
+    conda_roots = [
+        r"C:\ProgramData\miniconda3",
+        r"C:\ProgramData\Anaconda3",
+        os.path.expandvars(r"%USERPROFILE%\miniconda3"),
+        os.path.expandvars(r"%USERPROFILE%\Anaconda3"),
+    ]
+    for root in conda_roots:
+        conda_exe = os.path.join(root, "condabin", "conda.bat")
+        if os.path.exists(conda_exe):
+            extra_paths.extend([
+                os.path.join(root, "condabin"),
+                os.path.join(root, "Scripts"),
+                root,
+            ])
+            # Also add active env paths
+            for env_dir in ["py313", "py314"]:
+                env_path = os.path.join(root, "envs", env_dir)
+                if os.path.isdir(env_path):
+                    extra_paths.extend([
+                        env_path,
+                        os.path.join(env_path, "Scripts"),
+                        os.path.join(env_path, "Library", "bin"),
+                    ])
+            break
+
+    # Find node/npm
+    node_paths = [
+        r"C:\Program Files\nodejs",
+        os.path.expandvars(r"%APPDATA%\npm"),
+        os.path.expandvars(r"%LOCALAPPDATA%\fnm_multishells"),
+        os.path.expandvars(r"%USERPROFILE%\scoop\apps\nodejs\current"),
+        os.path.expandvars(r"%USERPROFILE%\scoop\apps\nodejs-lts\current"),
+    ]
+    for p in node_paths:
+        if os.path.isdir(p):
+            extra_paths.append(p)
+
+    # Find scoop shims
+    scoop_shims = os.path.expandvars(r"%USERPROFILE%\scoop\shims")
+    if os.path.isdir(scoop_shims):
+        extra_paths.append(scoop_shims)
+
+    if extra_paths:
+        env["PATH"] = ";".join(extra_paths) + ";" + env.get("PATH", "")
+
+    return env
+
+SUBPROCESS_ENV = _build_env()
+
+
 # ─── Backend API ─────────────────────────────────────────────────────────
 
 class Api:
@@ -198,13 +256,14 @@ class Api:
         return total
 
     def _cmd_exists(self, cmd):
-        """Check if a command exists."""
+        """Check if a command exists and runs successfully."""
         try:
-            subprocess.run(
+            r = subprocess.run(
                 cmd, shell=True, capture_output=True, timeout=10,
-                creationflags=subprocess.CREATE_NO_WINDOW
+                creationflags=subprocess.CREATE_NO_WINDOW,
+                env=SUBPROCESS_ENV
             )
-            return True
+            return r.returncode == 0
         except Exception:
             return False
 
@@ -305,7 +364,7 @@ class Api:
                                 subprocess.run(
                                     info["clean"], shell=True,
                                     capture_output=True, timeout=120,
-                                    creationflags=flags
+                                    creationflags=flags, env=SUBPROCESS_ENV
                                 )
                             except Exception:
                                 pass
@@ -377,6 +436,21 @@ class Api:
             except (OSError, PermissionError):
                 pass
 
+    def get_available_updaters(self):
+        """Return list of available update managers with their status."""
+        all_managers = {
+            "conda": "conda --version",
+            "pip": "pip --version",
+            "npm": "npm --version",
+            "scoop": "scoop --version",
+            "winget": "winget --version",
+        }
+        result = []
+        for name, cmd in all_managers.items():
+            available = self._cmd_exists(cmd)
+            result.append({"name": name, "available": available})
+        return result
+
     def update_packages(self, managers):
         """Update selected package managers."""
         def _do_update():
@@ -393,7 +467,8 @@ class Api:
                             r = subprocess.run(
                                 f"winget upgrade --id {pkg_id} --accept-package-agreements --accept-source-agreements",
                                 shell=True, capture_output=True,
-                                timeout=300, text=True, creationflags=flags
+                                timeout=300, text=True, creationflags=flags,
+                                env=SUBPROCESS_ENV
                             )
                         except Exception:
                             pass
@@ -403,7 +478,8 @@ class Api:
                         try:
                             r = subprocess.run(
                                 cmd, shell=True, capture_output=True,
-                                timeout=300, text=True, creationflags=flags
+                                timeout=300, text=True, creationflags=flags,
+                                env=SUBPROCESS_ENV
                             )
                             if r.returncode != 0:
                                 success = False
