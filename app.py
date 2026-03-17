@@ -69,7 +69,10 @@ PKG_MANAGER_CACHES = {
     "conda": {
         "check": "conda --version",
         "clean": "conda clean --all --yes",
-        "paths": [r"C:\ProgramData\miniconda3\pkgs"],
+        "paths": [
+            os.path.expandvars(r"%USERPROFILE%\miniconda3\pkgs"),
+            r"C:\ProgramData\miniconda3\pkgs",
+        ],
     },
     "pip": {
         "check": "pip --version",
@@ -152,40 +155,53 @@ def _build_env():
     env = os.environ.copy()
     extra_paths = []
 
-    # Find conda installation
+    # Find conda installation (user-level first, then system-level)
     conda_roots = [
-        r"C:\ProgramData\miniconda3",
-        r"C:\ProgramData\Anaconda3",
         os.path.expandvars(r"%USERPROFILE%\miniconda3"),
         os.path.expandvars(r"%USERPROFILE%\Anaconda3"),
+        r"C:\ProgramData\miniconda3",
+        r"C:\ProgramData\Anaconda3",
     ]
     for root in conda_roots:
-        conda_exe = os.path.join(root, "condabin", "conda.bat")
-        if os.path.exists(conda_exe):
+        conda_bat = os.path.join(root, "condabin", "conda.bat")
+        conda_exe = os.path.join(root, "Scripts", "conda.exe")
+        if os.path.exists(conda_bat) or os.path.exists(conda_exe):
             extra_paths.extend([
+                root,                                    # node.exe, npm.cmd live here too
                 os.path.join(root, "condabin"),
                 os.path.join(root, "Scripts"),
-                root,
+                os.path.join(root, "Library", "bin"),
             ])
-            # Also add active env paths
-            for env_dir in ["py313", "py314"]:
-                env_path = os.path.join(root, "envs", env_dir)
-                if os.path.isdir(env_path):
-                    extra_paths.extend([
-                        env_path,
-                        os.path.join(env_path, "Scripts"),
-                        os.path.join(env_path, "Library", "bin"),
-                    ])
+            # Also add conda env paths
+            envs_dir = os.path.join(root, "envs")
+            if os.path.isdir(envs_dir):
+                for env_dir in os.listdir(envs_dir):
+                    env_path = os.path.join(envs_dir, env_dir)
+                    if os.path.isdir(env_path):
+                        extra_paths.extend([
+                            env_path,
+                            os.path.join(env_path, "Scripts"),
+                            os.path.join(env_path, "Library", "bin"),
+                        ])
             break
 
-    # Find node/npm
+    # Find node/npm (multiple possible locations)
     node_paths = [
         r"C:\Program Files\nodejs",
         os.path.expandvars(r"%APPDATA%\npm"),
-        os.path.expandvars(r"%LOCALAPPDATA%\fnm_multishells"),
         os.path.expandvars(r"%USERPROFILE%\scoop\apps\nodejs\current"),
         os.path.expandvars(r"%USERPROFILE%\scoop\apps\nodejs-lts\current"),
     ]
+    # fnm: find latest multishell dir
+    fnm_base = os.path.expandvars(r"%LOCALAPPDATA%\fnm_multishells")
+    if os.path.isdir(fnm_base):
+        fnm_dirs = sorted(
+            [os.path.join(fnm_base, d) for d in os.listdir(fnm_base) if os.path.isdir(os.path.join(fnm_base, d))],
+            key=os.path.getmtime, reverse=True
+        )
+        if fnm_dirs:
+            node_paths.insert(0, fnm_dirs[0])
+
     for p in node_paths:
         if os.path.isdir(p):
             extra_paths.append(p)
