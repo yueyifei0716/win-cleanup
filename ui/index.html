@@ -252,6 +252,33 @@
   }
   .select-bar label { font-size: 13px; color: var(--text-dim); cursor: pointer; }
   .select-bar label input { margin-right: 6px; accent-color: var(--accent); }
+
+  /* ── Update log panel ── */
+  .log-panel {
+    background: #0a0f1a;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-top: 16px;
+    max-height: 350px;
+    overflow-y: auto;
+    font-family: 'Cascadia Code', 'Consolas', monospace;
+    font-size: 12px;
+    padding: 12px;
+    display: none;
+  }
+  .log-panel.active { display: block; }
+  .log-panel::-webkit-scrollbar { width: 6px; }
+  .log-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  .log-line { padding: 1px 0; line-height: 1.6; white-space: pre-wrap; word-break: break-all; }
+  .log-line .log-mgr {
+    color: var(--accent);
+    font-weight: 600;
+    margin-right: 8px;
+  }
+  .log-line .log-text { color: #cbd5e1; }
+  .log-line .log-cmd { color: var(--green); }
+  .log-line .log-error { color: var(--red); }
+  .log-line .log-info { color: var(--orange); }
 </style>
 </head>
 <body>
@@ -329,8 +356,12 @@
         <button class="btn btn-primary" onclick="startUpdate()" id="btn-update">
           Update Selected
         </button>
+        <button class="btn" onclick="clearLog()" id="btn-clear-log" style="margin-left:8px; display:none;">
+          Clear Log
+        </button>
       </div>
     </div>
+    <div class="log-panel" id="update-log"></div>
   </div>
 
   <!-- ── History ── -->
@@ -551,24 +582,77 @@ async function startUpdate() {
   if (managers.length === 0) return;
 
   document.getElementById('btn-update').disabled = true;
+  document.getElementById('btn-clear-log').style.display = 'none';
   managers.forEach(m => {
     document.getElementById('update-status-' + m).textContent = 'pending';
+    document.getElementById('update-status-' + m).style.color = 'var(--text-dim)';
   });
+
+  // Show and clear log panel
+  const logPanel = document.getElementById('update-log');
+  logPanel.innerHTML = '';
+  logPanel.classList.add('active');
+  appendLog('system', 'Starting package updates...', 'info');
 
   await pywebview.api.update_packages(managers);
 }
+
+function appendLog(mgr, text, type) {
+  const logPanel = document.getElementById('update-log');
+  const line = document.createElement('div');
+  line.className = 'log-line';
+
+  const mgrSpan = `<span class="log-mgr">[${mgr}]</span>`;
+  let textClass = 'log-text';
+  if (type === 'cmd') textClass = 'log-cmd';
+  else if (type === 'error') textClass = 'log-error';
+  else if (type === 'info') textClass = 'log-info';
+
+  line.innerHTML = `${mgrSpan}<span class="${textClass}">${escapeHtml(text)}</span>`;
+  logPanel.appendChild(line);
+  logPanel.scrollTop = logPanel.scrollHeight;
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+function clearLog() {
+  const logPanel = document.getElementById('update-log');
+  logPanel.innerHTML = '';
+  logPanel.classList.remove('active');
+  document.getElementById('btn-clear-log').style.display = 'none';
+}
+
+window.addEventListener('update_log', (e) => {
+  const d = e.detail;
+  let type = 'text';
+  if (d.line.startsWith('$')) type = 'cmd';
+  else if (d.line.startsWith('[ERROR]') || d.line.startsWith('[TIMEOUT]')) type = 'error';
+  else if (d.line.startsWith('Scanning') || d.line.startsWith('Found') || d.line.startsWith('Upgrading') || d.line.startsWith('No ')) type = 'info';
+  appendLog(d.manager, d.line, type);
+});
 
 window.addEventListener('update_progress', (e) => {
   const d = e.detail;
   const tag = document.getElementById('update-status-' + d.manager);
   if (tag) {
     tag.textContent = d.status;
-    tag.style.color = d.status === 'done' ? 'var(--green)' : d.status === 'failed' ? 'var(--red)' : 'var(--orange)';
+    if (d.status === 'done') tag.style.color = 'var(--green)';
+    else if (d.status === 'failed') tag.style.color = 'var(--red)';
+    else if (d.status === 'updating') tag.style.color = 'var(--orange)';
+  }
+  if (d.message) {
+    appendLog(d.manager, d.message, d.status === 'failed' ? 'error' : 'info');
   }
 });
 
 window.addEventListener('update_complete', () => {
   document.getElementById('btn-update').disabled = false;
+  document.getElementById('btn-clear-log').style.display = 'inline-flex';
+  appendLog('system', 'All updates finished.', 'info');
 });
 
 // ── Charts ──

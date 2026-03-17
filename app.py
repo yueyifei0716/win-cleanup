@@ -128,23 +128,21 @@ PKG_UPDATE_COMMANDS = {
     "scoop": ["scoop update *"],
 }
 
-# winget: only update dev tools, not entertainment/game apps
-WINGET_DEV_PACKAGES = [
-    "Git.Git",
-    "Microsoft.VisualStudioCode",
-    "Microsoft.WindowsTerminal",
-    "Docker.DockerDesktop",
-    "Python.Python.3",
-    "OpenJS.NodeJS",
-    "Google.Chrome",
-    "Mozilla.Firefox",
-    "Notepad++.Notepad++",
-    "JetBrains.Toolbox",
-    "Microsoft.PowerShell",
-    "Microsoft.DotNet.SDK.8",
-    "GoLang.Go",
-    "Rustlang.Rust.MSVC",
-    "Postman.Postman",
+# winget: keywords to match installed packages for dev-tool-only updates
+# Matches against package Name or ID (case-insensitive)
+WINGET_DEV_KEYWORDS = [
+    "git", "visual studio", "vscode", "terminal", "docker",
+    "python", "node", "chrome", "firefox", "notepad++",
+    "jetbrains", "powershell", "dotnet", ".net sdk", "golang", "go ",
+    "rust", "postman", "cursor", "sublime", "vim", "neovim",
+    "7-zip", "winrar", "winscp", "putty", "filezilla",
+]
+
+# winget: keywords to EXCLUDE (entertainment, games, etc.)
+WINGET_EXCLUDE_KEYWORDS = [
+    "抖音", "douyin", "tiktok", "epic", "steam", "wegame", "游戏",
+    "优酷", "youku", "腾讯视频", "网易云", "bilibili", "哔哩",
+    "豆包", "doubao", "feishu", "飞书", "okx", "binance",
 ]
 
 
@@ -467,46 +465,120 @@ class Api:
             result.append({"name": name, "available": available})
         return result
 
+    def _run_with_log(self, cmd, mgr_name, timeout=300):
+        """Run a command and stream stdout/stderr lines to the frontend in real-time."""
+        flags = subprocess.CREATE_NO_WINDOW
+        try:
+            proc = subprocess.Popen(
+                cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, bufsize=1, creationflags=flags, env=SUBPROCESS_ENV
+            )
+            output_lines = []
+            for line in iter(proc.stdout.readline, ''):
+                line = line.rstrip()
+                if line:
+                    output_lines.append(line)
+                    self._emit("update_log", {
+                        "manager": mgr_name,
+                        "line": line,
+                    })
+            proc.stdout.close()
+            proc.wait(timeout=timeout)
+            return proc.returncode == 0, output_lines
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            self._emit("update_log", {"manager": mgr_name, "line": "[TIMEOUT] Command timed out"})
+            return False, ["[TIMEOUT]"]
+        except Exception as e:
+            self._emit("update_log", {"manager": mgr_name, "line": f"[ERROR] {e}"})
+            return False, [str(e)]
+
+    def _get_winget_upgradable_dev_packages(self):
+        """Get list of winget-upgradable packages filtered to dev tools only."""
+        flags = subprocess.CREATE_NO_WINDOW
+        try:
+            r = subprocess.run(
+                "winget upgrade --accept-source-agreements",
+                shell=True, capture_output=True, text=True,
+                timeout=60, creationflags=flags, env=SUBPROCESS_ENV
+            )
+            lines = r.stdout.strip().split('\n')
+        except Exception:
+            return []
+
+        packages = []
+        for line in lines:
+            lower = line.lower()
+            # Skip header/footer lines
+            if not line.strip() or line.startswith('-') or '可用' in line or 'upgrade' in lower:
+                continue
+            # Exclude entertainment/game packages
+            if any(kw in lower for kw in WINGET_EXCLUDE_KEYWORDS):
+                continue
+            # Check if it's a dev tool (match any keyword)
+            if any(kw in lower for kw in WINGET_DEV_KEYWORDS):
+                # Try to extract package ID (usually second-to-last column-ish)
+                parts = line.split()
+                if len(parts) >= 3:
+                    # The ID is typically the second field
+                    pkg_id = parts[-3] if len(parts) >= 4 else parts[1]
+                    packages.append({"line": line.strip(), "id": pkg_id})
+        return packages
+
     def update_packages(self, managers):
-        """Update selected package managers."""
+        """Update selected package managers with real-time log streaming."""
         def _do_update():
-            flags = subprocess.CREATE_NO_WINDOW
             results = []
             for mgr in managers:
-                self._emit("update_progress", {"manager": mgr, "status": "updating"})
-                success = True
+                self._emit("update_progress", {
+                    "manager": mgr, "status": "updating",
+                    "message": f"Starting {mgr} update..."
+                })
 
                 if mgr == "winget":
-                    # Only update whitelisted dev tool packages
-                    for pkg_id in WINGET_DEV_PACKAGES:
-                        try:
-                            r = subprocess.run(
-                                f"winget upgrade --id {pkg_id} --accept-package-agreements --accept-source-agreements",
-                                shell=True, capture_output=True,
-                                timeout=300, text=True, creationflags=flags,
-                                env=SUBPROCESS_ENV
+                    self._emit("update_log", {"manager": mgr, "line": "Scanning for upgradable dev packages..."})
+                    dev_pkgs = self._get_winget_upgradable_dev_packages()
+                    if not dev_pkgs:
+                        self._emit("update_log", {"manager": mgr, "line": "No dev packages need updating."})
+                        results.append({"manager": mgr, "success": True})
+                    else:
+                        self._emit("update_log", {
+                            "manager": mgr,
+                            "line": f"Found {len(dev_pkgs)} dev package(s) to update"
+                        })
+                        all_ok = True
+                        for pkg in dev_pkgs:
+                            self._emit("update_log", {
+                                "manager": mgr,
+                                "line": f"Upgrading: {pkg['line']}"
+                            })
+                            ok, _ = self._run_with_log(
+                                f"winget upgrade --id {pkg['id']} --accept-package-agreements --accept-source-agreements",
+                                mgr, timeout=300
                             )
-                        except Exception:
-                            pass
+                            if not ok:
+                                all_ok = False
+                        results.append({"manager": mgr, "success": all_ok})
                 else:
                     cmds = PKG_UPDATE_COMMANDS.get(mgr, [])
+                    success = True
                     for cmd in cmds:
-                        try:
-                            r = subprocess.run(
-                                cmd, shell=True, capture_output=True,
-                                timeout=300, text=True, creationflags=flags,
-                                env=SUBPROCESS_ENV
-                            )
-                            if r.returncode != 0:
-                                success = False
-                        except Exception:
+                        self._emit("update_log", {
+                            "manager": mgr,
+                            "line": f"$ {cmd}"
+                        })
+                        ok, _ = self._run_with_log(cmd, mgr, timeout=300)
+                        if not ok:
                             success = False
+                    results.append({"manager": mgr, "success": success})
 
-                results.append({"manager": mgr, "success": success})
+                status = "done" if results[-1]["success"] else "failed"
                 self._emit("update_progress", {
                     "manager": mgr,
-                    "status": "done" if success else "failed",
+                    "status": status,
+                    "message": f"{mgr}: {'completed' if status == 'done' else 'failed'}"
                 })
+
             self._emit("update_complete", {"results": results})
 
         threading.Thread(target=_do_update, daemon=True).start()
