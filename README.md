@@ -1,18 +1,46 @@
 # win-cleanup
 
-Windows disk & cache cleanup script with package manager maintenance.
+Windows disk & cache cleanup tool with desktop GUI and CLI.
 
-## Features
+## Desktop App (GUI)
 
-- **Windows system cleanup**: Temp files, crash dumps, prefetch, thumbnail cache, Windows Update cache
-- **Browser cache**: Chrome, Edge
-- **Application cache**: Claude (safe parts only), NVIDIA, Docker, Cursor, VS Code
-- **Package manager cache**: conda, pip, uv, npm, pnpm, yarn, bun, cargo, go, scoop, docker
-- **Package updates** (optional): conda, pip, npm, scoop, winget
-- **Recycle Bin**: Auto-empty
-- **Protected paths**: Claude Code memory/config is never touched
+A native desktop application with real-time disk visualization, one-click cleanup, and history charts.
 
-## Usage
+### Features
+
+- **Dashboard** - Disk usage overview with live bar charts for all drives
+- **Scan & Clean** - Scan all cleanable caches, select items, one-click cleanup
+- **Cache Distribution** - Doughnut chart showing what's consuming space
+- **Package Updates** - Update conda, pip, npm, scoop, winget from the UI
+- **History** - Bar chart and table of past cleanups with freed space tracking
+- **Protected Paths** - Claude Code memory/config is never touched
+
+### Run from source
+
+```powershell
+# Install dependencies (Python 3.13 recommended)
+pip install pywebview psutil
+
+# Launch
+python app.py
+
+# Or use the batch file
+run.bat
+```
+
+### Build standalone exe
+
+```powershell
+pip install pyinstaller
+build.bat
+# Output: dist/WinCleanup.exe (13 MB, no Python needed)
+```
+
+Double-click `WinCleanup.exe` to launch.
+
+## CLI Script
+
+For headless / scheduled use:
 
 ```powershell
 # Preview what would be cleaned (no changes)
@@ -25,13 +53,10 @@ Windows disk & cache cleanup script with package manager maintenance.
 .\cleanup.ps1 -Force
 
 # Clean + update all package managers
-.\cleanup.ps1 -UpdatePackages
-
-# Clean + update, no prompt
 .\cleanup.ps1 -UpdatePackages -Force
 ```
 
-## Scheduled Task
+### Scheduled Task
 
 Run `schedule.ps1` as Administrator to set up automatic cleanup:
 
@@ -54,7 +79,8 @@ Run `schedule.ps1` as Administrator to set up automatic cleanup:
 | System Cache | Thumbnails, Prefetch, Update Cache, Crash Dumps | Slight slowdown on first access |
 | Browser Cache | Chrome/Edge cache, code cache, SW cache | Pages load slower on first visit |
 | App Cache | Claude GPU/render cache, NVIDIA shader cache, Docker temp | Auto-rebuilt on next launch |
-| Package Cache | conda/pip/npm/yarn/pnpm/cargo/go/scoop/docker | Packages re-download if needed |
+| IDE Cache | VS Code, Cursor cache and cached data | Auto-rebuilt on next launch |
+| Package Cache | conda, pip, uv, npm, pnpm, yarn, bun, cargo, go, scoop, docker | Packages re-download if needed |
 | Recycle Bin | Deleted files | Permanent deletion |
 
 ## What is NEVER cleaned
@@ -68,8 +94,8 @@ Run `schedule.ps1` as Administrator to set up automatic cleanup:
 ## Requirements
 
 - Windows 10/11
-- PowerShell 5.1+
-- Administrator rights (for scheduled task registration and system cache cleanup)
+- Python 3.10+ (for running from source)
+- Administrator rights recommended (for system cache cleanup)
 
 ## License
 

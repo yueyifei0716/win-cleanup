@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WinCleanup</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<style>
+  :root {
+    --bg: #0f172a;
+    --card: #1e293b;
+    --card-hover: #263450;
+    --border: #334155;
+    --text: #e2e8f0;
+    --text-dim: #94a3b8;
+    --accent: #38bdf8;
+    --accent-hover: #7dd3fc;
+    --green: #4ade80;
+    --red: #f87171;
+    --orange: #fb923c;
+    --purple: #a78bfa;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    overflow-x: hidden;
+  }
+
+  /* ── Header ── */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(135deg, #0f172a 0%, #1a2744 100%);
+  }
+  .header h1 { font-size: 20px; font-weight: 600; }
+  .header h1 span { color: var(--accent); }
+  .header-actions { display: flex; gap: 8px; }
+
+  /* ── Buttons ── */
+  .btn {
+    padding: 8px 16px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--card);
+    color: var(--text);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .btn:hover { background: var(--card-hover); border-color: var(--accent); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-primary {
+    background: var(--accent);
+    color: #0f172a;
+    border-color: var(--accent);
+    font-weight: 600;
+  }
+  .btn-primary:hover { background: var(--accent-hover); }
+  .btn-danger { border-color: var(--red); color: var(--red); }
+  .btn-danger:hover { background: rgba(248, 113, 113, 0.1); }
+
+  /* ── Layout ── */
+  .container { padding: 20px 24px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+
+  /* ── Cards ── */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .card-title {
+    font-size: 13px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 12px;
+  }
+  .stat-value {
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--accent);
+  }
+  .stat-sub { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+
+  /* ── Disk bar ── */
+  .disk-bar {
+    width: 100%;
+    height: 12px;
+    background: var(--bg);
+    border-radius: 6px;
+    overflow: hidden;
+    margin: 12px 0 8px;
+  }
+  .disk-bar-fill {
+    height: 100%;
+    border-radius: 6px;
+    transition: width 0.6s ease;
+  }
+  .disk-bar-fill.ok { background: linear-gradient(90deg, var(--green), #22d3ee); }
+  .disk-bar-fill.warn { background: linear-gradient(90deg, var(--orange), var(--red)); }
+  .disk-labels { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-dim); }
+
+  /* ── Scan results ── */
+  .scan-section { margin-top: 20px; }
+  .scan-section h2 { font-size: 16px; margin-bottom: 12px; }
+
+  .scan-list { display: flex; flex-direction: column; gap: 6px; }
+  .scan-item {
+    display: flex;
+    align-items: center;
+    padding: 10px 14px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    transition: all 0.15s;
+    cursor: pointer;
+  }
+  .scan-item:hover { border-color: var(--accent); background: var(--card-hover); }
+  .scan-item.selected { border-color: var(--accent); background: rgba(56, 189, 248, 0.08); }
+
+  .scan-item input[type="checkbox"] {
+    width: 16px; height: 16px; margin-right: 12px;
+    accent-color: var(--accent);
+  }
+  .scan-item .name { flex: 1; font-size: 14px; }
+  .scan-item .size {
+    font-size: 14px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--orange);
+  }
+  .scan-item .tag {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    margin-left: 10px;
+    background: rgba(167, 139, 250, 0.15);
+    color: var(--purple);
+  }
+
+  /* ── Progress ── */
+  .progress-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.85);
+    z-index: 100;
+    justify-content: center;
+    align-items: center;
+  }
+  .progress-overlay.active { display: flex; }
+  .progress-box {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 32px 40px;
+    min-width: 400px;
+    text-align: center;
+  }
+  .progress-box h3 { margin-bottom: 16px; }
+  .progress-bar {
+    width: 100%;
+    height: 8px;
+    background: var(--bg);
+    border-radius: 4px;
+    overflow: hidden;
+    margin: 16px 0;
+  }
+  .progress-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--green));
+    border-radius: 4px;
+    transition: width 0.3s ease;
+    width: 0%;
+  }
+  .progress-status { font-size: 13px; color: var(--text-dim); }
+
+  /* ── Chart container ── */
+  .chart-container { position: relative; height: 220px; }
+
+  /* ── History ── */
+  .history-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  .history-table th {
+    text-align: left;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-dim);
+    font-weight: 500;
+  }
+  .history-table td {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .history-table tr:hover { background: var(--card-hover); }
+
+  /* ── Tabs ── */
+  .tabs { display: flex; gap: 2px; margin-bottom: 20px; }
+  .tab {
+    padding: 8px 20px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px 8px 0 0;
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.2s;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--bg);
+    background: var(--bg);
+  }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  /* ── Spinner ── */
+  .spinner {
+    display: inline-block;
+    width: 20px; height: 20px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Select all bar ── */
+  .select-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 0;
+    margin-bottom: 8px;
+  }
+  .select-bar label { font-size: 13px; color: var(--text-dim); cursor: pointer; }
+  .select-bar label input { margin-right: 6px; accent-color: var(--accent); }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1><span>Win</span>Cleanup</h1>
+  <div class="header-actions">
+    <button class="btn" onclick="switchTab('dashboard')">Dashboard</button>
+    <button class="btn" onclick="switchTab('cleanup')">Cleanup</button>
+    <button class="btn" onclick="switchTab('updates')">Updates</button>
+    <button class="btn" onclick="switchTab('history')">History</button>
+  </div>
+</div>
+
+<div class="container">
+  <!-- ── Dashboard ── -->
+  <div id="tab-dashboard" class="tab-content active">
+    <div class="grid-3" id="disk-cards"></div>
+    <div class="grid">
+      <div class="card">
+        <div class="card-title">Cache Distribution</div>
+        <div class="chart-container">
+          <canvas id="chart-pie"></canvas>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">Cleanup History</div>
+        <div class="chart-container">
+          <canvas id="chart-history"></canvas>
+        </div>
+      </div>
+    </div>
+    <div style="text-align:center; padding: 12px;">
+      <button class="btn btn-primary" onclick="startScan()" id="btn-scan">
+        Scan Now
+      </button>
+    </div>
+  </div>
+
+  <!-- ── Cleanup ── -->
+  <div id="tab-cleanup" class="tab-content">
+    <div id="scan-empty" style="text-align:center; padding:60px; color:var(--text-dim);">
+      Click "Scan Now" on Dashboard first to detect cleanable items.
+    </div>
+    <div id="scan-results" style="display:none;">
+      <div class="grid" style="margin-bottom:16px;">
+        <div class="card">
+          <div class="card-title">Total Cleanable</div>
+          <div class="stat-value" id="total-cleanable">--</div>
+        </div>
+        <div class="card" style="display:flex; align-items:center; justify-content:center;">
+          <button class="btn btn-primary" onclick="startClean()" id="btn-clean" style="font-size:16px; padding:12px 32px;">
+            Clean Selected
+          </button>
+        </div>
+      </div>
+      <div class="select-bar">
+        <label><input type="checkbox" id="select-all" onchange="toggleSelectAll()" checked> Select All</label>
+        <span style="font-size:12px; color:var(--text-dim);" id="selected-count"></span>
+      </div>
+      <div class="scan-list" id="scan-list"></div>
+    </div>
+  </div>
+
+  <!-- ── Updates ── -->
+  <div id="tab-updates" class="tab-content">
+    <div class="card" style="margin-bottom:16px;">
+      <div class="card-title">Package Manager Updates</div>
+      <p style="font-size:13px; color:var(--text-dim); margin-bottom:16px;">
+        Update installed package managers and their global packages.
+      </p>
+      <div class="scan-list" id="update-list"></div>
+      <div style="margin-top:16px; text-align:center;">
+        <button class="btn btn-primary" onclick="startUpdate()" id="btn-update">
+          Update Selected
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── History ── -->
+  <div id="tab-history" class="tab-content">
+    <div class="card">
+      <div class="card-title">Cleanup History</div>
+      <table class="history-table">
+        <thead><tr><th>Date</th><th>Items Cleaned</th><th>Freed</th></tr></thead>
+        <tbody id="history-body"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ── Progress Overlay ── -->
+<div class="progress-overlay" id="progress-overlay">
+  <div class="progress-box">
+    <h3 id="progress-title">Cleaning...</h3>
+    <div class="progress-bar"><div class="progress-bar-fill" id="progress-fill"></div></div>
+    <div class="progress-status" id="progress-status">Preparing...</div>
+  </div>
+</div>
+
+<script>
+// ── State ──
+let scanData = [];
+let diskInfo = [];
+let pieChart = null;
+let historyChart = null;
+
+// ── Formatting ──
+function fmtSize(bytes) {
+  if (bytes >= 1073741824) return (bytes / 1073741824).toFixed(2) + ' GB';
+  if (bytes >= 1048576) return (bytes / 1048576).toFixed(0) + ' MB';
+  if (bytes >= 1024) return (bytes / 1024).toFixed(0) + ' KB';
+  return bytes + ' B';
+}
+
+function fmtDate(ts) {
+  const d = new Date(ts);
+  return d.toLocaleDateString('zh-CN') + ' ' + d.toLocaleTimeString('zh-CN', {hour:'2-digit', minute:'2-digit'});
+}
+
+// ── Tab switching ──
+function switchTab(name) {
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  if (name === 'history') loadHistory();
+  if (name === 'updates') renderUpdateList();
+}
+
+// ── Disk info ──
+async function loadDiskInfo() {
+  diskInfo = await pywebview.api.get_disk_info();
+  renderDiskCards();
+}
+
+function renderDiskCards() {
+  const el = document.getElementById('disk-cards');
+  el.innerHTML = diskInfo.map(d => {
+    const pct = d.percent;
+    const cls = pct > 80 ? 'warn' : 'ok';
+    return `
+      <div class="card">
+        <div class="card-title">${d.device}</div>
+        <div class="stat-value">${fmtSize(d.free)}</div>
+        <div class="stat-sub">free of ${fmtSize(d.total)}</div>
+        <div class="disk-bar"><div class="disk-bar-fill ${cls}" style="width:${pct}%"></div></div>
+        <div class="disk-labels"><span>${pct}% used</span><span>${fmtSize(d.used)} / ${fmtSize(d.total)}</span></div>
+      </div>
+    `;
+  }).join('');
+}
+
+// ── Scan ──
+async function startScan() {
+  const btn = document.getElementById('btn-scan');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Scanning...';
+
+  scanData = await pywebview.api.scan();
+
+  btn.disabled = false;
+  btn.innerHTML = 'Scan Now';
+
+  renderScanResults();
+  renderPieChart();
+  switchTab('cleanup');
+}
+
+function renderScanResults() {
+  const list = document.getElementById('scan-list');
+  document.getElementById('scan-empty').style.display = 'none';
+  document.getElementById('scan-results').style.display = 'block';
+
+  const total = scanData.reduce((s, d) => s + d.size, 0);
+  document.getElementById('total-cleanable').textContent = fmtSize(total);
+
+  list.innerHTML = scanData.map((d, i) => `
+    <div class="scan-item ${d.size > 0 ? 'selected' : ''}" onclick="toggleItem(${i})">
+      <input type="checkbox" ${d.size > 0 ? 'checked' : ''} data-idx="${i}">
+      <span class="name">${d.category}</span>
+      <span class="tag">${d.type}</span>
+      <span class="size">${fmtSize(d.size)}</span>
+    </div>
+  `).join('');
+  updateSelectedCount();
+}
+
+function toggleItem(idx) {
+  const cb = document.querySelector(`input[data-idx="${idx}"]`);
+  cb.checked = !cb.checked;
+  cb.closest('.scan-item').classList.toggle('selected', cb.checked);
+  updateSelectedCount();
+}
+
+function toggleSelectAll() {
+  const checked = document.getElementById('select-all').checked;
+  document.querySelectorAll('#scan-list input[type="checkbox"]').forEach(cb => {
+    cb.checked = checked;
+    cb.closest('.scan-item').classList.toggle('selected', checked);
+  });
+  updateSelectedCount();
+}
+
+function updateSelectedCount() {
+  const cbs = document.querySelectorAll('#scan-list input[type="checkbox"]:checked');
+  let size = 0;
+  cbs.forEach(cb => { size += scanData[cb.dataset.idx].size; });
+  document.getElementById('selected-count').textContent =
+    `${cbs.length} selected (${fmtSize(size)})`;
+}
+
+// ── Clean ──
+async function startClean() {
+  const cbs = document.querySelectorAll('#scan-list input[type="checkbox"]:checked');
+  const categories = [];
+  cbs.forEach(cb => categories.push(scanData[cb.dataset.idx].category));
+
+  if (categories.length === 0) return;
+
+  showProgress('Cleaning...', 0, categories.length);
+  await pywebview.api.clean(categories);
+}
+
+function showProgress(title, current, total) {
+  document.getElementById('progress-overlay').classList.add('active');
+  document.getElementById('progress-title').textContent = title;
+  updateProgress(current, total, 'Starting...');
+}
+
+function updateProgress(current, total, status) {
+  const pct = total > 0 ? (current / total * 100) : 0;
+  document.getElementById('progress-fill').style.width = pct + '%';
+  document.getElementById('progress-status').textContent = status;
+}
+
+function hideProgress() {
+  document.getElementById('progress-overlay').classList.remove('active');
+}
+
+// ── Events from backend ──
+window.addEventListener('clean_progress', (e) => {
+  const d = e.detail;
+  updateProgress(d.current, d.total, `Cleaning: ${d.category}...`);
+});
+
+window.addEventListener('clean_complete', async (e) => {
+  const d = e.detail;
+  hideProgress();
+
+  // Save history
+  await pywebview.api.save_history({
+    timestamp: Date.now(),
+    freed: d.total_freed,
+    items: scanData.filter((_, i) => {
+      const cb = document.querySelector(`input[data-idx="${i}"]`);
+      return cb && cb.checked;
+    }).map(x => x.category),
+  });
+
+  // Refresh
+  diskInfo = d.disk_info;
+  renderDiskCards();
+
+  // Re-scan
+  scanData = await pywebview.api.scan();
+  renderScanResults();
+  renderPieChart();
+
+  alert(`Cleanup complete! Freed approximately ${fmtSize(d.total_freed)}.`);
+});
+
+// ── Updates ──
+const availableUpdaters = ['conda', 'pip', 'npm', 'scoop', 'winget'];
+
+function renderUpdateList() {
+  const list = document.getElementById('update-list');
+  list.innerHTML = availableUpdaters.map(m => `
+    <div class="scan-item selected" onclick="this.querySelector('input').click()">
+      <input type="checkbox" checked data-mgr="${m}" onclick="event.stopPropagation()">
+      <span class="name">${m}</span>
+      <span class="tag" id="update-status-${m}">ready</span>
+    </div>
+  `).join('');
+}
+
+async function startUpdate() {
+  const cbs = document.querySelectorAll('#update-list input:checked');
+  const managers = [];
+  cbs.forEach(cb => managers.push(cb.dataset.mgr));
+  if (managers.length === 0) return;
+
+  document.getElementById('btn-update').disabled = true;
+  managers.forEach(m => {
+    document.getElementById('update-status-' + m).textContent = 'pending';
+  });
+
+  await pywebview.api.update_packages(managers);
+}
+
+window.addEventListener('update_progress', (e) => {
+  const d = e.detail;
+  const tag = document.getElementById('update-status-' + d.manager);
+  if (tag) {
+    tag.textContent = d.status;
+    tag.style.color = d.status === 'done' ? 'var(--green)' : d.status === 'failed' ? 'var(--red)' : 'var(--orange)';
+  }
+});
+
+window.addEventListener('update_complete', () => {
+  document.getElementById('btn-update').disabled = false;
+});
+
+// ── Charts ──
+const chartColors = [
+  '#38bdf8', '#4ade80', '#fb923c', '#a78bfa', '#f87171',
+  '#fbbf24', '#22d3ee', '#e879f9', '#34d399', '#f472b6',
+];
+
+function renderPieChart() {
+  const ctx = document.getElementById('chart-pie').getContext('2d');
+  const data = scanData.filter(d => d.size > 0);
+
+  if (pieChart) pieChart.destroy();
+  pieChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: data.map(d => d.category),
+      datasets: [{
+        data: data.map(d => d.size),
+        backgroundColor: chartColors,
+        borderColor: '#0f172a',
+        borderWidth: 2,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: 'right',
+          labels: { color: '#94a3b8', font: { size: 11 }, boxWidth: 12, padding: 8 },
+        },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => `${ctx.label}: ${fmtSize(ctx.raw)}`,
+          },
+        },
+      },
+    },
+  });
+}
+
+async function renderHistoryChart() {
+  const history = await pywebview.api.get_history();
+  const ctx = document.getElementById('chart-history').getContext('2d');
+
+  const recent = history.slice(-14);
+
+  if (historyChart) historyChart.destroy();
+  historyChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: recent.map(h => {
+        const d = new Date(h.timestamp);
+        return (d.getMonth()+1) + '/' + d.getDate();
+      }),
+      datasets: [{
+        label: 'Freed',
+        data: recent.map(h => h.freed / 1048576),
+        backgroundColor: 'rgba(56, 189, 248, 0.6)',
+        borderColor: '#38bdf8',
+        borderWidth: 1,
+        borderRadius: 4,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        y: {
+          beginAtZero: true,
+          ticks: { color: '#94a3b8', callback: v => v + ' MB' },
+          grid: { color: '#1e293b' },
+        },
+        x: {
+          ticks: { color: '#94a3b8' },
+          grid: { display: false },
+        },
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: { label: ctx => fmtSize(ctx.raw * 1048576) },
+        },
+      },
+    },
+  });
+}
+
+// ── History table ──
+async function loadHistory() {
+  const history = await pywebview.api.get_history();
+  const tbody = document.getElementById('history-body');
+  tbody.innerHTML = history.reverse().map(h => `
+    <tr>
+      <td>${fmtDate(h.timestamp)}</td>
+      <td>${h.items ? h.items.length : '--'} items</td>
+      <td style="color:var(--green); font-weight:600;">${fmtSize(h.freed)}</td>
+    </tr>
+  `).join('');
+}
+
+// ── Init ──
+window.addEventListener('pywebviewready', async () => {
+  await loadDiskInfo();
+  await renderHistoryChart();
+  renderUpdateList();
+});
+</script>
+</body>
+</html>
