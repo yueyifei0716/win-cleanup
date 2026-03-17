@@ -123,8 +123,26 @@ PKG_UPDATE_COMMANDS = {
     "pip": ["pip install --upgrade pip"],
     "npm": ["npm update -g"],
     "scoop": ["scoop update *"],
-    "winget": ["winget upgrade --all --accept-package-agreements --accept-source-agreements"],
 }
+
+# winget: only update dev tools, not entertainment/game apps
+WINGET_DEV_PACKAGES = [
+    "Git.Git",
+    "Microsoft.VisualStudioCode",
+    "Microsoft.WindowsTerminal",
+    "Docker.DockerDesktop",
+    "Python.Python.3",
+    "OpenJS.NodeJS",
+    "Google.Chrome",
+    "Mozilla.Firefox",
+    "Notepad++.Notepad++",
+    "JetBrains.Toolbox",
+    "Microsoft.PowerShell",
+    "Microsoft.DotNet.SDK.8",
+    "GoLang.Go",
+    "Rustlang.Rust.MSVC",
+    "Postman.Postman",
+]
 
 
 # ─── Backend API ─────────────────────────────────────────────────────────
@@ -365,19 +383,33 @@ class Api:
             flags = subprocess.CREATE_NO_WINDOW
             results = []
             for mgr in managers:
-                cmds = PKG_UPDATE_COMMANDS.get(mgr, [])
                 self._emit("update_progress", {"manager": mgr, "status": "updating"})
                 success = True
-                for cmd in cmds:
-                    try:
-                        r = subprocess.run(
-                            cmd, shell=True, capture_output=True,
-                            timeout=300, text=True, creationflags=flags
-                        )
-                        if r.returncode != 0:
+
+                if mgr == "winget":
+                    # Only update whitelisted dev tool packages
+                    for pkg_id in WINGET_DEV_PACKAGES:
+                        try:
+                            r = subprocess.run(
+                                f"winget upgrade --id {pkg_id} --accept-package-agreements --accept-source-agreements",
+                                shell=True, capture_output=True,
+                                timeout=300, text=True, creationflags=flags
+                            )
+                        except Exception:
+                            pass
+                else:
+                    cmds = PKG_UPDATE_COMMANDS.get(mgr, [])
+                    for cmd in cmds:
+                        try:
+                            r = subprocess.run(
+                                cmd, shell=True, capture_output=True,
+                                timeout=300, text=True, creationflags=flags
+                            )
+                            if r.returncode != 0:
+                                success = False
+                        except Exception:
                             success = False
-                    except Exception:
-                        success = False
+
                 results.append({"manager": mgr, "success": success})
                 self._emit("update_progress", {
                     "manager": mgr,

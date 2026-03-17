@@ -329,8 +329,19 @@ if ($UpdatePackages) {
     }
 
     if (Test-Command 'winget') {
-        Write-Host "  Updating winget packages..."
-        winget upgrade --all --accept-package-agreements --accept-source-agreements 2>&1 | Select-Object -Last 5
+        Write-Host "  Updating winget dev tool packages..."
+        # Only update whitelisted dev tools, not games/entertainment
+        $wingetDevPkgs = @(
+            'Git.Git', 'Microsoft.VisualStudioCode', 'Microsoft.WindowsTerminal',
+            'Docker.DockerDesktop', 'Python.Python.3', 'OpenJS.NodeJS',
+            'Google.Chrome', 'Mozilla.Firefox', 'Notepad++.Notepad++',
+            'JetBrains.Toolbox', 'Microsoft.PowerShell', 'GoLang.Go',
+            'Rustlang.Rust.MSVC', 'Postman.Postman'
+        )
+        foreach ($pkg in $wingetDevPkgs) {
+            winget upgrade --id $pkg --accept-package-agreements --accept-source-agreements 2>&1 | Out-Null
+        }
+        Write-Host "" # blank line after winget output
         Write-Host "  [OK]  winget updated" -ForegroundColor Green
     }
 }
